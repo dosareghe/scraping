@@ -6,6 +6,15 @@ import uuid
 
 app = FastAPI()
 
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Allows all domains to talk to your backend
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Render uses a temporary /tmp folder for storage
 DOWNLOAD_DIR = "/tmp/downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
