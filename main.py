@@ -1,16 +1,13 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
-from fastapi.middleware.cors import CORSMiddleware
-import yt_dlp
 import os
-import uuid
+from fastapi import FastAPI, HTTPException
+# ... (keep other imports)
 
 app = FastAPI()
 
-# 1. PASTE YOUR LONG COOKIE STRING BETWEEN THE QUOTES BELOW
-MY_COOKIES = "datr=i5NyaY4K9zb86iFc26xbudLI;ig_did=5A3C3682-16EF-41A9-9AC9-80E6A75A0C08;mid=aXKTiwAEAAFrM7r_O6eVhbop8u8w;ps_l=1;ps_n=1;ig_nrcb=1;sessionid=80100521443%3Aji0MEX2sARWRc5%3A14%3AAYjUlIXBbmHrcEtLvRB2OPh0Zv9nND4Y3RVw_GzGwg;wd=980x1588;dpr=2.608695652173913;csrftoken=YgWCdAIixxpARl2RjXLXTWJPNcUhS2yE;rur="LDC\05480100521443\0541800654430:01fe56f38f4a44bc2c4e5b2b02b317898adb8048655a8df88962bd4c2504a84402cc7b2c";ds_user_id=80100521443;"
+# This looks for the secret value on Render. 
+# If it's not found, it defaults to an empty string.
+MY_COOKIES = os.getenv("INSTA_COOKIES", "")
 
-# Common User-Agent to match a mobile browser
 USER_AGENT = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36'
 
 app.add_middleware(
