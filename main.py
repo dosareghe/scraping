@@ -1,20 +1,18 @@
 import os
 import uuid
 import yt_dlp
+import shutil
+import zipfile
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
-# 1. AUTHENTICATION: This looks for your cookie string in Render's Environment Variables
-# Key should be: INSTA_COOKIES
+# Authentication from Render Environment Variables
 MY_COOKIES = os.getenv("INSTA_COOKIES", "")
-
-# Identity to match your phone's browser
 USER_AGENT = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36'
 
-# Enable CORS so your GitHub Pages frontend can talk to this Render backend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,15 +20,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Render uses /tmp for ephemeral file storage (limit is usually 2GB)
 DOWNLOAD_DIR = "/tmp/downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 def get_ydl_opts(is_download=False, out_path=None):
-    """
-    Centralized configuration for yt-dlp. 
-    Using http_headers instead of a cookie file for easier mobile deployment.
-    """
     opts = {
         'quiet': True,
         'no_warnings': True,
@@ -39,54 +32,65 @@ def get_ydl_opts(is_download=False, out_path=None):
             'User-Agent': USER_AGENT,
         },
         'nocheckcertificate': True,
+        'allowed_extractors': ['instagram', 'facebook', 'generic'],
     }
-    
     if is_download:
         opts['outtmpl'] = out_path
-        opts['format'] = 'best'
-        
+        # 'best' is flexible for both video and image extraction
+        opts['format'] = 'best/bestvideo+bestaudio'
     return opts
 
 @app.get("/")
 def health_check():
-    return {"status": "Online", "message": "Backend is ready!"}
+    return {"status": "Online", "message": "Ready for Reels and Posts!"}
 
 @app.get("/preview")
 def get_preview(url: str):
-    """Fetches video title and thumbnail to show the user before they download."""
-    if not url:
-        raise HTTPException(status_code=400, detail="No URL provided")
-        
     try:
         with yt_dlp.YoutubeDL(get_ydl_opts()) as ydl:
             info = ydl.extract_info(url, download=False)
             return {
-                "title": info.get('title', 'Video'),
+                "title": info.get('title', 'Social Media Post'),
                 "thumbnail": info.get('thumbnail'),
-                "duration": info.get('duration_string'),
-                "source": info.get('extractor_key')
+                "duration": info.get('duration_string', 'Image/Post'),
+                "source": info.get('extractor_key'),
+                "is_carousel": 'entries' in info
             }
     except Exception as e:
-        # We pass the error message so you can see if it's a 'Login Required' issue
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/download")
 async def download_content(url: str):
-    """Downloads the file to the server and then streams it to the user's phone."""
-    unique_id = str(uuid.uuid4())
-    # Sanitize the title later if needed, but yt-dlp handles most characters
-    out_tmpl = f"{DOWNLOAD_DIR}/{unique_id}_%(title)s.%(ext)s"
+    job_id = str(uuid.uuid4())
+    # Create a unique sub-folder for this specific download job
+    job_dir = os.path.join(DOWNLOAD_DIR, job_id)
+    os.makedirs(job_dir, exist_ok=True)
+    
+    out_tmpl = f"{job_dir}/%(title).50s_%(id)s.%(ext)s"
     
     try:
         with yt_dlp.YoutubeDL(get_ydl_opts(is_download=True, out_path=out_tmpl)) as ydl:
             info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
             
-        # Send the file to the browser and delete it from server after sending
-        return FileResponse(
-            path=filename, 
-            filename=os.path.basename(filename),
-            media_type='application/octet-stream'
-        )
+            # Check if it's a carousel (contains multiple files)
+            if 'entries' in info:
+                zip_path = f"{DOWNLOAD_DIR}/{job_id}_gallery.zip"
+                with zipfile.ZipFile(zip_path, 'w') as zipf:
+                    for root, dirs, files in os.walk(job_dir):
+                        for file in files:
+                            zipf.write(os.path.join(root, file), file)
+                
+                # Cleanup the individual files after zipping
+                shutil.rmtree(job_dir)
+                return FileResponse(path=zip_path, filename="gallery.zip")
+            
+            else:
+                # It's a single video or single image
+                filename = ydl.prepare_filename(info)
+                return FileResponse(path=filename, filename=os.path.basename(filename))
+
     except Exception as e:
+        # Cleanup on error
+        if os.path.exists(job_dir):
+            shutil.rmtree(job_dir)
         raise HTTPException(status_code=500, detail=str(e))
